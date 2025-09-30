@@ -1,0 +1,210 @@
+version: '3.8'
+
+services:
+  # Core Infrastructure
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-server
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./models:/models
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    ports:
+      - "3000:8080"
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-secret}
+      - ENABLE_RAG_LOCAL_WEB_FETCH=true
+    volumes:
+      - open_webui_data:/app/backend/data
+
+  # MCP Gateway
+  mcp-gateway:
+    image: ghcr.io/docker/mcp-gateway:latest
+    container_name: mcp-gateway
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./mcp-config:/config
+    environment:
+      - MCP_CONFIG_PATH=/config
+
+
+  frontend-agent:
+    build:
+      context: ./agents/frontend
+      dockerfile: Dockerfile
+    container_name: frontend-agent
+    depends_on:
+      - ollama
+      - mcp-gateway
+    ports:
+      - "3000:3000"
+      - "6006:6006"
+    volumes:
+      - ./frontend:/app
+      - ./shared:/shared
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - MCP_GATEWAY_URL=http://mcp-gateway:8080
+      - MODEL_NAME=deepseek-coder:6.7b
+      - AGENT_ROLE=frontend_developer
+      - UI_FRAMEWORK=react
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  backend-agent:
+    build:
+      context: ./agents/backend
+      dockerfile: Dockerfile
+    container_name: backend-agent
+    depends_on:
+      - ollama
+      - mcp-gateway
+    ports:
+      - "8000:8000"
+      - "5432:5432"
+    volumes:
+      - ./backend:/app
+      - ./shared:/shared
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - MCP_GATEWAY_URL=http://mcp-gateway:8080
+      - MODEL_NAME=codellama:13b
+      - AGENT_ROLE=backend_developer
+      - FRAMEWORK=fastapi
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  security-agent:
+    build:
+      context: ./agents/security
+      dockerfile: Dockerfile
+    container_name: security-agent
+    depends_on:
+      - ollama
+      - mcp-gateway    volumes:
+      - ./codebase:/scan
+      - ./reports:/reports
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - MCP_GATEWAY_URL=http://mcp-gateway:8080
+      - MODEL_NAME=qwen2.5-coder:7b
+      - AGENT_ROLE=security_analyst
+      - SCAN_MODE=comprehensive
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  integration-agent:
+    build:
+      context: ./agents/integration
+      dockerfile: Dockerfile
+    container_name: integration-agent
+    depends_on:
+      - ollama
+      - mcp-gateway
+    ports:
+      - "2375:2375"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./deployment:/deployment
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - MCP_GATEWAY_URL=http://mcp-gateway:8080
+      - MODEL_NAME=llama3.1:8b
+      - AGENT_ROLE=devops_engineer
+      - DOCKER_HOST=tcp://localhost:2375
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  tech_stack-agent:
+    build:
+      context: ./agents/tech_stack
+      dockerfile: Dockerfile
+    container_name: tech_stack-agent
+    depends_on:
+      - ollama
+      - mcp-gateway    volumes:
+      - ./analysis:/analysis
+      - ./recommendations:/recommendations
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - MCP_GATEWAY_URL=http://mcp-gateway:8080
+      - MODEL_NAME=mixtral:8x7b
+      - AGENT_ROLE=tech_advisor
+      - ANALYSIS_DEPTH=detailed
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  code_review-agent:
+    build:
+      context: ./agents/code_review
+      dockerfile: Dockerfile
+    container_name: code_review-agent
+    depends_on:
+      - ollama
+      - mcp-gateway    volumes:
+      - ./codebase:/code
+      - ./reviews:/reviews
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - MCP_GATEWAY_URL=http://mcp-gateway:8080
+      - MODEL_NAME=deepseek-coder:33b
+      - AGENT_ROLE=code_reviewer
+      - REVIEW_STANDARDS=strict
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  product_requirements-agent:
+    build:
+      context: ./agents/product_requirements
+      dockerfile: Dockerfile
+    container_name: product_requirements-agent
+    depends_on:
+      - ollama
+      - mcp-gateway    volumes:
+      - ./requirements:/requirements
+      - ./mockups:/mockups
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - MCP_GATEWAY_URL=http://mcp-gateway:8080
+      - MODEL_NAME=gpt-4o-mini
+      - AGENT_ROLE=product_manager
+      - OUTPUT_FORMAT=user_stories
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+networks:
+  agent-network:
+    driver: bridge
+
+volumes:
+  ollama_data:
+  open_webui_data:
+  shared_workspace:

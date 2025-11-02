@@ -123,6 +123,27 @@ docker exec frontend-agent curl http://ollama:11434/api/version
 - Use smaller models (e.g., qwen2.5-coder:1.5b)
 - Increase Docker resource limits
 
+## Automated Git Sync
+
+Use `auto_git_committer.py` to stage, commit, and push changes across every local repository (including Docker project directories that are not yet versioned). The tool prepares commits and ships them to the `mvallarautomations` GitHub account.
+
+```bash
+# Provide a GitHub token with repo scope
+export MVALLARAUTOMATIONS_TOKEN=ghp_...
+
+# Dry run to inspect actions
+python auto_git_committer.py --dry-run
+
+# Execute for real and create missing GitHub repos
+python auto_git_committer.py --create-missing
+```
+
+Optional flags:
+- `--roots` to scan additional base directories
+- `--commit-message` for a custom message
+- `--no-init-docker` to skip auto-initialising Docker directories
+- `--token-env` if you store the token under a different variable
+
 ## Security Considerations
 
 - All agents run in isolated containers
